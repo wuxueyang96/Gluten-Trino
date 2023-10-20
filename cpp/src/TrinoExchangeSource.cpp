@@ -77,17 +77,42 @@ bool TrinoExchangeSource::shouldRequestLocked() {
   if (atEnd_) {
     return false;
   }
-  bool pending = requestPending_;
-  requestPending_ = true;
-  return !pending;
+
+  if (!requestPending_) {
+    VELOX_CHECK(!promise_.valid() || promise_.isFulfilled());
+    requestPending_ = true;
+    return true;
+  }
+
+  // We are still processing previous request.
+  return false;
 }
 
-void TrinoExchangeSource::request() {
+folly::SemiFuture<TrinoExchangeSource::Response> TrinoExchangeSource::request(
+    uint32_t maxBytes, uint32_t maxWaitSeconds) {
+  // Before calling 'request', the caller should have called
+  // 'shouldRequestLocked' and received 'true' response. Hence, we expect
+  // requestPending_ == true, atEnd_ == false.
+  // This call cannot be made concurrently from multiple threads.
+  VELOX_CHECK(requestPending_);
+  VELOX_CHECK(!promise_.valid() || promise_.isFulfilled());
+
+  auto promise = VeloxPromise<Response>("PrestoExchangeSource::request");
+  auto future = promise.getSemiFuture();
+
+  promise_ = std::move(promise);
   failedAttempts_ = 0;
-  doRequest();
+  dataRequestRetryState_ =
+      RetryState(std::chrono::duration_cast<std::chrono::milliseconds>(
+                     NativeConfigs::instance().getExchangeMaxErrorDuration())
+                     .count());
+  doRequest(dataRequestRetryState_.nextDelayMs(), maxBytes, maxWaitSeconds);
+
+  return future;
 }
 
-void TrinoExchangeSource::doRequest() {
+void TrinoExchangeSource::doRequest(int64_t delayMs, uint32_t maxBytes,
+                                    uint32_t maxWaitSeconds) {
   if (closed_.load()) {
     queue_->setError("TrinoExchangeSource closed");
     return;

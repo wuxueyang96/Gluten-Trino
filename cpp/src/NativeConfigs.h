@@ -21,6 +21,7 @@
 #include <unordered_map>
 
 #include "velox/common/base/BitUtil.h"
+#include "velox/core/QueryConfig.h"
 
 namespace facebook::velox {
 class Config;
@@ -108,6 +109,9 @@ class NativeConfigs : public boost::noncopyable {
   inline const std::string& getHttpsSupportedCiphers() const {
     return httpsSupportedCiphers;
   }
+  inline const std::chrono::duration<double> getExchangeMaxErrorDuration() const {
+    return facebook::velox::core::toDuration(exchangeMaxErrorDuration);
+  }
 
  private:
   std::atomic_bool initialized{false};
@@ -158,6 +162,7 @@ class NativeConfigs : public boost::noncopyable {
   uint64_t httpMaxAllocateBytes = 64 << 10;
   std::string httpsClientCertAndKeyPath = "";
   std::string httpsSupportedCiphers = "ECDHE-ECDSA-AES256-GCM-SHA384,AES256-GCM-SHA384";
+  std::string exchangeMaxErrorDuration = "30s";
 };
 
 }  // namespace io::trino::bridge
